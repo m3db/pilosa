@@ -82,8 +82,6 @@ func (cp *containersPool) put(c *Container) {
 
 func (cp *containersPool) get() *Container {
 	if cp == nil || cp.containers == nil {
-		// Allocate if pooling isn't configured.
-		// TODO: Fix me
 		return NewContainer()
 	}
 
@@ -97,8 +95,7 @@ func (cp *containersPool) get() *Container {
 
 	// Pooling is enabled, but there are no available containers,
 	// so we allocate.
-	// TODO: Fix me
-	return NewContainer()
+	return NewContainerWithPooling(cp.config)
 }
 
 func newSliceContainers() *sliceContainers {
