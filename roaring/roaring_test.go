@@ -451,13 +451,14 @@ func TestBitmap_UnionInPlacePropWithPooling(t *testing.T) {
 
 func testBitmap_UnionInPlaceProp(t *testing.T, poolingEnabled bool) {
 	var (
-		seed               = time.Now().UnixNano()
-		source             = rand.NewSource(seed)
-		rng                = rand.New(source)
-		numTests           = 100
-		maxNumIntsPerBatch = 100
-		maxNumBatches      = 100
-		maxRangePercent    = 2
+		seed                   = time.Now().UnixNano()
+		source                 = rand.NewSource(seed)
+		rng                    = rand.New(source)
+		numTests               = 100
+		maxNumIntsPerBatch     = 100
+		maxNumBatches          = 100
+		maxNumContainersInPool = 100
+		maxRangePercent        = 2
 		// Need to limit the range of possible numbers that we generate
 		// otherwise two randomly generated numbers landing in the same
 		// container would be extremely unlikely, leaving container merging
@@ -469,7 +470,7 @@ func testBitmap_UnionInPlaceProp(t *testing.T, poolingEnabled bool) {
 	if poolingEnabled {
 		bitmapPool = make(chan *roaring.Bitmap, maxNumBatches*2+2)
 		for i := 0; i < maxNumBatches*2+2; i++ {
-			bitmapPool <- roaring.NewBitmapWithDefaultPooling(5)
+			bitmapPool <- roaring.NewBitmapWithDefaultPooling(rand.Intn(maxNumContainersInPool))
 		}
 	}
 
