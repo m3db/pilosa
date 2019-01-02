@@ -23,7 +23,6 @@ import (
 	"sort"
 	"testing"
 	"testing/quick"
-	"time"
 
 	"github.com/pilosa/pilosa"
 	"github.com/pilosa/pilosa/roaring"
@@ -442,8 +441,17 @@ func TestBitmap_UnionInPlace1(t *testing.T) {
 // then compares the result against a reference implementation (golang map) to
 // ensure that all the unions were handled correctly.
 func TestBitmap_UnionInPlaceProp(t *testing.T) {
+	testBitmap_UnionInPlaceProp(t, false)
+}
+
+func TestBitmap_UnionInPlacePropWithPooling(t *testing.T) {
+	testBitmap_UnionInPlaceProp(t, true)
+}
+
+func testBitmap_UnionInPlaceProp(t *testing.T, poolingEnabled bool) {
 	var (
-		seed               = time.Now().UnixNano()
+		// seed               = time.Now().UnixNano()
+		seed               = int64(1546462598772720681)
 		source             = rand.NewSource(seed)
 		rng                = rand.New(source)
 		numTests           = 100
@@ -456,6 +464,14 @@ func TestBitmap_UnionInPlaceProp(t *testing.T) {
 		// behavior untested.
 		maxUint64Val = 1000000
 	)
+
+	var bitmapPool chan *roaring.Bitmap
+	if poolingEnabled {
+		bitmapPool = make(chan *roaring.Bitmap, maxNumBatches*2+2)
+		for i := 0; i < maxNumBatches*2+2; i++ {
+			bitmapPool <- roaring.NewBitmapWithDefaultPooling(100)
+		}
+	}
 
 	for i := 0; i < numTests; i++ {
 		var (
@@ -470,8 +486,14 @@ func TestBitmap_UnionInPlaceProp(t *testing.T) {
 			// For each "batch" create the equivalent set and bitmap.
 			var (
 				set    = map[uint64]struct{}{}
-				bitmap = roaring.NewBitmap()
+				bitmap *roaring.Bitmap
 			)
+			if poolingEnabled {
+				bitmap = <-bitmapPool
+			}
+			if bitmap == nil {
+				bitmap = roaring.NewBitmap()
+			}
 
 			if rng.Intn(100) <= maxRangePercent {
 				// Generate max range RLE containers with a configurable
@@ -522,6 +544,14 @@ func TestBitmap_UnionInPlaceProp(t *testing.T) {
 					val, seed)
 			}
 		}
+
+		if poolingEnabled {
+			for _, bitmap := range bitmaps {
+				bitmap.Reset()
+				bitmapPool <- bitmap
+			}
+		}
+
 	}
 }
 
@@ -1504,7 +1534,8 @@ func BenchmarkSliceDescending(b *testing.B) {
 func BenchmarkUnion(b *testing.B) {
 	data := getBenchData(b)
 	for n := 0; n < b.N; n++ {
-		data.a1.
+		roaring.NewBitmap().
+			Union(data.a1).
 			Union(data.a2).
 			Union(data.b).
 			Union(data.r1).
@@ -1514,8 +1545,17 @@ func BenchmarkUnion(b *testing.B) {
 
 func BenchmarkUnionBulk(b *testing.B) {
 	data := getBenchData(b)
-	bm := roaring.NewBitmap()
 	for n := 0; n < b.N; n++ {
+		roaring.NewBitmap().
+			UnionInPlace(data.a1, data.a2, data.b, data.r1, data.r2)
+	}
+}
+
+func BenchmarkUnionBulkWithPooling(b *testing.B) {
+	data := getBenchData(b)
+	bm := roaring.NewBitmapWithDefaultPooling(100)
+	for n := 0; n < b.N; n++ {
+		bm.Reset()
 		bm.
 			UnionInPlace(data.a1, data.a2, data.b, data.r1, data.r2)
 	}

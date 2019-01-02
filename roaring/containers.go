@@ -19,10 +19,106 @@ type sliceContainers struct {
 	containers    []*Container
 	lastKey       uint64
 	lastContainer *Container
+
+	containersPool containersPool
+}
+
+// ContainerPoolingConfiguration represents the configuration for
+// container pooling.
+type ContainerPoolingConfiguration struct {
+	// Maximum number of containers to pool.
+	MaxCapacity int
+	// Maximum size of an individual containers array slice.
+	MaxPooledArraySize int
+	// Maximum size of an individual containers run slice.
+	MaxPooledRunSize int
+}
+
+// NewDefaultContainerPoolingConfiguration creates a ContainerPoolingConfiguration
+// with default configuration.
+func NewDefaultContainerPoolingConfiguration(maxCapacity int) ContainerPoolingConfiguration {
+	return ContainerPoolingConfiguration{
+		MaxCapacity: maxCapacity,
+		// Set to maximum possible values to completely prevent allocations when
+		// inserting into a container.
+		MaxPooledArraySize: ArrayMaxSize,
+		MaxPooledRunSize:   runMaxSize,
+	}
+}
+
+type containersPool struct {
+	containers []*Container
+	config     ContainerPoolingConfiguration
+}
+
+func (cp *containersPool) put(c *Container) {
+	if cp == nil || cp.containers == nil {
+		// Ignore if pooling isn't configured.
+		return
+	}
+
+	if len(cp.containers) >= cp.config.MaxCapacity {
+		// Don't allow pool to exceed maximum capacity.
+		return
+	}
+
+	if c.array != nil && len(c.array) > cp.config.MaxPooledArraySize {
+		// Don't allow any containers with an oversized array slice to be
+		// returned to the pool.
+		return
+	}
+
+	if c.runs != nil && len(c.runs) > cp.config.MaxPooledRunSize {
+		// Don't allow any containers with an oversized run slice to be
+		// returned to the pool.
+		return
+	}
+
+	// Reset before returning to the pool to ensure all calls to get() return
+	// a clean container.
+	c.Reset()
+	cp.containers = append(cp.containers, c)
+}
+
+func (cp *containersPool) get() *Container {
+	if cp == nil || cp.containers == nil {
+		// Allocate if pooling isn't configured.
+		// TODO: Fix me
+		return NewContainer()
+	}
+
+	if len(cp.containers) >= 0 {
+		// If we have a pooled container available, use that.
+		lastIdx := len(cp.containers) - 1
+		c := cp.containers[lastIdx]
+		cp.containers = cp.containers[:lastIdx]
+		return c
+	}
+
+	// Pooling is enabled, but there are no available containers,
+	// so we allocate.
+	// TODO: Fix me
+	return NewContainer()
 }
 
 func newSliceContainers() *sliceContainers {
 	return &sliceContainers{}
+}
+
+func newSliceContainersWithPooling(poolingConfig ContainerPoolingConfiguration) *sliceContainers {
+	sc := &sliceContainers{
+		keys: make([]uint64, 0, poolingConfig.MaxCapacity),
+	}
+
+	sc.containersPool = containersPool{
+		config:     poolingConfig,
+		containers: make([]*Container, 0, poolingConfig.MaxCapacity),
+	}
+	for i := 0; i < poolingConfig.MaxCapacity; i++ {
+		sc.containersPool.put(NewContainerWithPooling(poolingConfig))
+	}
+
+	return sc
 }
 
 func (sc *sliceContainers) Get(key uint64) *Container {
@@ -49,7 +145,7 @@ func (sc *sliceContainers) Put(key uint64, c *Container) {
 func (sc *sliceContainers) PutContainerValues(key uint64, containerType byte, n int, mapped bool) {
 	i := search64(sc.keys, key)
 	if i < 0 {
-		c := NewContainer()
+		c := sc.containersPool.get()
 		c.containerType = containerType
 		c.n = int32(n)
 		c.mapped = mapped
@@ -93,7 +189,7 @@ func (sc *sliceContainers) GetOrCreate(key uint64) *Container {
 	sc.lastKey = key
 	i := search64(sc.keys, key)
 	if i < 0 {
-		c := NewContainer()
+		c := sc.containersPool.get()
 		sc.insertAt(key, c, -i-1)
 		sc.lastContainer = c
 		return c
@@ -136,6 +232,15 @@ func (sc *sliceContainers) Count() uint64 {
 
 func (sc *sliceContainers) Reset() {
 	sc.keys = sc.keys[:0]
+
+	for i := range sc.containers {
+		// Try and return containers to the pool (no-op if disabled.)
+		sc.containersPool.put(sc.containers[i])
+		// Clear pointers to allow G.C to reclaim objects if these were the
+		// only outstanding pointers.
+		sc.containers[i] = nil
+	}
+
 	sc.containers = sc.containers[:0]
 	sc.lastContainer = nil
 	sc.lastKey = 0

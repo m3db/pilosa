@@ -120,12 +120,30 @@ type Bitmap struct {
 
 	// Writer where operations are appended to.
 	OpWriter io.Writer
+
+	// Make sure to update the Reset() method if any new fields are added to
+	// this struct.
 }
 
 // NewBitmap returns a Bitmap with an initial set of values.
 func NewBitmap(a ...uint64) *Bitmap {
 	b := &Bitmap{
 		Containers: newSliceContainers(),
+	}
+	b.Add(a...)
+	return b
+}
+
+// NewBitmapWithDefaultPooling returns a new bitmap with the default pooling configuration.
+func NewBitmapWithDefaultPooling(maxPoolCapacity int, a ...uint64) *Bitmap {
+	return NewBitmapWithPooling(NewDefaultContainerPoolingConfiguration(maxPoolCapacity), a...)
+}
+
+// NewBitmapWithPooling returns a new Bitmap with the provided pooling configuration
+// and initial set of values.
+func NewBitmapWithPooling(pooling ContainerPoolingConfiguration, a ...uint64) *Bitmap {
+	b := &Bitmap{
+		Containers: newSliceContainersWithPooling(pooling),
 	}
 	b.Add(a...)
 	return b
@@ -148,6 +166,13 @@ func (b *Bitmap) Clone() *Bitmap {
 	}
 
 	return other
+}
+
+// Reset reset the bitmap and the underlying containers for re-use.
+func (b *Bitmap) Reset() {
+	b.Containers.Reset()
+	b.opN = 0
+	b.OpWriter = nil
 }
 
 // Add adds values to the bitmap.
@@ -611,12 +636,17 @@ func (b *Bitmap) unionInPlace(others ...*Bitmap) {
 				// range that a container can store, so instead of calculating a
 				// union we can generate an RLE container that represents the entire
 				// range.
-				container := &Container{
-					runs:          []interval16{{start: 0, last: maxContainerVal}},
-					containerType: containerRun,
-					n:             maxContainerVal + 1,
+				//
+				// Use GetOrCreate here to take advantage of pooling if its enabled.
+				container := target.Containers.GetOrCreate(iKey)
+				if cap(container.runs) > 0 {
+					container.runs = container.runs[:1]
+					container.runs[0] = interval16{start: 0, last: maxContainerVal}
+				} else {
+					container.runs = []interval16{{start: 0, last: maxContainerVal}}
 				}
-				target.Containers.Put(iKey, container)
+				container.containerType = containerRun
+				container.n = maxContainerVal + 1
 				bitmapIters.markItersWithCurrentKeyAsHandled(i, iKey)
 				continue
 			}
@@ -630,19 +660,12 @@ func (b *Bitmap) unionInPlace(others ...*Bitmap) {
 			// will require writing a union in place algorithm for an array container
 			// that accepts multiple different containers to union into it for
 			// efficiency.
-			container := target.Containers.Get(iKey)
+			//
+			// Use GetOrCreate to take advantage of pooling if its enabled.
+			container := target.Containers.GetOrCreate(iKey)
 			// If target already has a bitmap container for iKey then we can reuse that,
-			// otherwise we have to allocate a new one or convert the existing container
-			// into a bitmap container.
-			if container == nil {
-				buf := make([]uint64, bitmapN)
-				ob := buf[:bitmapN]
-				container = &Container{
-					bitmap:        ob,
-					n:             0,
-					containerType: containerBitmap,
-				}
-			} else if container.isArray() {
+			// otherwise we have to convert the existing container into a bitmap container.
+			if container.isArray() {
 				container.arrayToBitmap()
 			} else if container.isRun() {
 				container.runToBitmap()
@@ -1271,12 +1294,16 @@ const runMaxSize = 2048
 // integers would use run length encoding, and more random data usually uses
 // bitmap encoding.
 type Container struct {
+	pooled        bool
 	mapped        bool         // mapped directly to a byte slice when true
 	containerType byte         // array, bitmap, or run
 	n             int32        // number of integers in container
 	array         []uint16     // used for array containers
 	bitmap        []uint64     // used for bitmap containers
 	runs          []interval16 // used for RLE containers
+
+	// Make sure to update the Reset() method if any new fields are added to
+	// this struct.
 }
 
 type interval16 struct {
@@ -1293,6 +1320,59 @@ func (iv interval16) runlen() int32 {
 func NewContainer() *Container {
 	statsHit("NewContainer")
 	return &Container{containerType: containerArray}
+}
+
+// NewContainerWithPooling creates a new container with the provided pooling
+// configuration.
+func NewContainerWithPooling(poolingConfig ContainerPoolingConfiguration) *Container {
+	statsHit("NewContainerWithPooling")
+	return &Container{
+		pooled:        true,
+		containerType: containerArray,
+
+		bitmap: make([]uint64, bitmapN),
+		array:  make([]uint16, 0, poolingConfig.MaxPooledArraySize),
+		runs:   make([]interval16, 0, poolingConfig.MaxPooledRunSize),
+	}
+}
+
+// Reset the container so it can be reused while maintaining any allocated
+// datastructures.
+func (c *Container) Reset() {
+	c.mapped = false
+	c.containerType = containerArray
+	c.n = 0
+
+	// Reset all the container types.
+	c.resetArray()
+	c.resetBitmap()
+	c.resetRuns()
+}
+
+func (c *Container) resetArray() {
+	if c.pooled {
+		c.array = c.array[:0]
+	} else {
+		c.array = nil
+	}
+}
+
+func (c *Container) resetBitmap() {
+	if c.pooled {
+		for i := range c.bitmap {
+			c.bitmap[i] = 0
+		}
+	} else {
+		c.bitmap = nil
+	}
+}
+
+func (c *Container) resetRuns() {
+	if c.pooled {
+		c.runs = c.runs[:0]
+	} else {
+		c.runs = nil
+	}
 }
 
 // Mapped returns true if the container is mapped directly to a byte slice
@@ -1775,12 +1855,16 @@ func (c *Container) runMax() uint16 {
 // bitmapToArray converts from bitmap format to array format.
 func (c *Container) bitmapToArray() {
 	statsHit("bitmapToArray")
-	c.array = make([]uint16, 0, c.n)
+	if cap(c.array) < int(c.n) || c.array == nil {
+		c.array = make([]uint16, 0, c.n)
+	} else {
+		c.array = c.array[:0]
+	}
 	c.containerType = containerArray
 
 	// return early if empty
 	if c.n == 0 {
-		c.bitmap = nil
+		c.resetBitmap()
 		c.mapped = false
 		return
 	}
@@ -1792,19 +1876,24 @@ func (c *Container) bitmapToArray() {
 			bitmap ^= t
 		}
 	}
-	c.bitmap = nil
+	c.resetBitmap()
 	c.mapped = false
 }
 
 // arrayToBitmap converts from array format to bitmap format.
 func (c *Container) arrayToBitmap() {
 	statsHit("arrayToBitmap")
-	c.bitmap = make([]uint64, bitmapN)
+	// Bitmap should already be cleared, but clear again just to
+	// be safe.
+	c.resetBitmap()
+	if cap(c.bitmap) < bitmapN || c.bitmap == nil {
+		c.bitmap = make([]uint64, bitmapN)
+	}
 	c.containerType = containerBitmap
 
 	// return early if empty
 	if c.n == 0 {
-		c.array = nil
+		c.resetArray()
 		c.mapped = false
 		return
 	}
@@ -1812,19 +1901,24 @@ func (c *Container) arrayToBitmap() {
 	for _, v := range c.array {
 		c.bitmap[int(v)/64] |= (uint64(1) << uint(v%64))
 	}
-	c.array = nil
+	c.resetArray()
 	c.mapped = false
 }
 
 // runToBitmap converts from RLE format to bitmap format.
 func (c *Container) runToBitmap() {
 	statsHit("runToBitmap")
-	c.bitmap = make([]uint64, bitmapN)
+	// Bitmap should already be cleared, but clear again just to
+	// be safe.
+	c.resetBitmap()
+	if cap(c.bitmap) < bitmapN || c.bitmap == nil {
+		c.bitmap = make([]uint64, bitmapN)
+	}
 	c.containerType = containerBitmap
 
 	// return early if empty
 	if c.n == 0 {
-		c.runs = nil
+		c.resetRuns()
 		c.mapped = false
 		return
 	}
@@ -1836,7 +1930,7 @@ func (c *Container) runToBitmap() {
 			c.bitmap[v/64] |= (uint64(1) << uint(v%64))
 		}
 	}
-	c.runs = nil
+	c.resetRuns()
 	c.mapped = false
 }
 
@@ -1846,14 +1940,22 @@ func (c *Container) bitmapToRun() {
 	c.containerType = containerRun
 	// return early if empty
 	if c.n == 0 {
-		c.runs = make([]interval16, 0)
-		c.bitmap = nil
+		if c.runs == nil {
+			c.runs = make([]interval16, 0)
+		} else {
+			c.runs = c.runs[:0]
+		}
+		c.resetBitmap()
 		c.mapped = false
 		return
 	}
 
 	numRuns := c.bitmapCountRuns()
-	c.runs = make([]interval16, 0, numRuns)
+	if cap(c.runs) < int(numRuns) || c.runs == nil {
+		c.runs = make([]interval16, 0, numRuns)
+	} else {
+		c.runs = c.runs[:0]
+	}
 
 	current := c.bitmap[0]
 	var i, start, last uint16
@@ -1893,7 +1995,7 @@ func (c *Container) bitmapToRun() {
 		current = current & (current + 1)
 	}
 
-	c.bitmap = nil
+	c.resetBitmap()
 	c.mapped = false
 }
 
@@ -1903,14 +2005,22 @@ func (c *Container) arrayToRun() {
 	c.containerType = containerRun
 	// return early if empty
 	if c.n == 0 {
-		c.runs = make([]interval16, 0)
-		c.array = nil
+		if c.runs == nil {
+			c.runs = make([]interval16, 0)
+		} else {
+			c.runs = c.runs[:0]
+		}
+		c.resetArray()
 		c.mapped = false
 		return
 	}
 
 	numRuns := c.arrayCountRuns()
-	c.runs = make([]interval16, 0, numRuns)
+	if cap(c.runs) < int(numRuns) || c.runs == nil {
+		c.runs = make([]interval16, 0, numRuns)
+	} else {
+		c.runs = c.runs[:0]
+	}
 	start := c.array[0]
 	for i, v := range c.array[1:] {
 		if v-c.array[i] > 1 {
@@ -1921,7 +2031,7 @@ func (c *Container) arrayToRun() {
 	}
 	// append final run
 	c.runs = append(c.runs, interval16{start, c.array[c.n-1]})
-	c.array = nil
+	c.resetArray()
 	c.mapped = false
 }
 
@@ -1929,11 +2039,15 @@ func (c *Container) arrayToRun() {
 func (c *Container) runToArray() {
 	statsHit("runToArray")
 	c.containerType = containerArray
-	c.array = make([]uint16, 0, c.n)
+	if cap(c.array) < int(c.n) || c.array == nil {
+		c.array = make([]uint16, 0, c.n)
+	} else {
+		c.array = c.array[:0]
+	}
 
 	// return early if empty
 	if c.n == 0 {
-		c.runs = nil
+		c.resetRuns()
 		c.mapped = false
 		return
 	}
@@ -1943,7 +2057,7 @@ func (c *Container) runToArray() {
 			c.array = append(c.array, uint16(v))
 		}
 	}
-	c.runs = nil
+	c.resetRuns()
 	c.mapped = false
 }
 
