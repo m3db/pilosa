@@ -1350,7 +1350,7 @@ func (c *Container) Reset() {
 }
 
 func (c *Container) resetArray() {
-	if c.pooled {
+	if c.pooled && c.array != nil {
 		c.array = c.array[:0]
 	} else {
 		c.array = nil
@@ -1358,7 +1358,7 @@ func (c *Container) resetArray() {
 }
 
 func (c *Container) resetBitmap() {
-	if c.pooled {
+	if c.pooled && c.bitmap != nil {
 		for i := range c.bitmap {
 			c.bitmap[i] = 0
 		}
@@ -1368,7 +1368,7 @@ func (c *Container) resetBitmap() {
 }
 
 func (c *Container) resetRuns() {
-	if c.pooled {
+	if c.pooled && c.runs != nil {
 		c.runs = c.runs[:0]
 	} else {
 		c.runs = nil
