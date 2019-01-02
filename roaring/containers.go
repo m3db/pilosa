@@ -85,7 +85,7 @@ func (cp *containersPool) get() *Container {
 		return NewContainer()
 	}
 
-	if len(cp.containers) >= 0 {
+	if len(cp.containers) > 0 {
 		// If we have a pooled container available, use that.
 		lastIdx := len(cp.containers) - 1
 		c := cp.containers[lastIdx]

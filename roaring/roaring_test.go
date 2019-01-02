@@ -23,6 +23,7 @@ import (
 	"sort"
 	"testing"
 	"testing/quick"
+	"time"
 
 	"github.com/pilosa/pilosa"
 	"github.com/pilosa/pilosa/roaring"
@@ -450,8 +451,7 @@ func TestBitmap_UnionInPlacePropWithPooling(t *testing.T) {
 
 func testBitmap_UnionInPlaceProp(t *testing.T, poolingEnabled bool) {
 	var (
-		// seed               = time.Now().UnixNano()
-		seed               = int64(1546462598772720681)
+		seed               = time.Now().UnixNano()
 		source             = rand.NewSource(seed)
 		rng                = rand.New(source)
 		numTests           = 100
@@ -469,7 +469,7 @@ func testBitmap_UnionInPlaceProp(t *testing.T, poolingEnabled bool) {
 	if poolingEnabled {
 		bitmapPool = make(chan *roaring.Bitmap, maxNumBatches*2+2)
 		for i := 0; i < maxNumBatches*2+2; i++ {
-			bitmapPool <- roaring.NewBitmapWithDefaultPooling(100)
+			bitmapPool <- roaring.NewBitmapWithDefaultPooling(5)
 		}
 	}
 
