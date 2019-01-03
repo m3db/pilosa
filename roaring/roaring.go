@@ -1364,42 +1364,72 @@ func (c *Container) Reset() {
 
 	// Reset all the container types.
 	c.resetArrayWithMinimumCapacity(0)
-	c.resetBitmap()
+	c.resetBitmap(false)
 	c.resetRunsWithMinimumCapacity(0)
 }
 
 func (c *Container) resetArrayWithMinimumCapacity(size int) {
 	if c.pooled && c.array != nil && cap(c.array) >= size {
+		// We always keep the array capacity around if pooling is enabled,
+		// so just clear it.
 		c.array = c.array[:0]
-	} else {
-		if size == 0 {
-			c.array = nil
-		} else {
-			c.array = make([]uint16, 0, size)
-		}
+		return
 	}
+
+	if size == 0 {
+		// Pooling disabled and we don't need the capacity, nil reference
+		// so G.C can reclaim.
+		c.array = nil
+		return
+	}
+
+	c.array = make([]uint16, 0, size)
 }
 
-func (c *Container) resetBitmap() {
+func (c *Container) resetBitmap(allocated bool) {
 	if c.pooled && c.bitmap != nil {
+		// We always keep the bitmap around if pooling is enabled,
+		// so just clear it.
 		for i := range c.bitmap {
 			c.bitmap[i] = 0
 		}
-	} else {
+		return
+	}
+
+	if !allocated {
+		// Pooling disabled and don't need the bitmap so nil it out.
 		c.bitmap = nil
+		return
+	}
+
+	if cap(c.bitmap) < bitmapN || c.bitmap == nil {
+		// Need the bitmap, but its too small or doesn't exist, allocate.
+		c.bitmap = make([]uint64, bitmapN)
+		return
+	}
+
+	for i := range c.bitmap {
+		// Bitmap exists and is big enough, just clear it.
+		c.bitmap[i] = 0
 	}
 }
 
 func (c *Container) resetRunsWithMinimumCapacity(size int) {
 	if c.pooled && c.runs != nil && cap(c.runs) >= size {
+		// We always keep the run capacity around if pooling is enabled,
+		// so just clear it.
 		c.runs = c.runs[:0]
-	} else {
-		if size == 0 {
-			c.runs = nil
-		} else {
-			c.runs = make([]interval16, 0, size)
-		}
+		return
 	}
+
+	if size == 0 {
+		// Pooling disabled and we don't need the capacity, nil reference
+		// so G.C can reclaim.
+		c.runs = nil
+		return
+	}
+
+	c.runs = make([]interval16, 0, size)
 }
 
 // Mapped returns true if the container is mapped directly to a byte slice
@@ -1882,16 +1912,12 @@ func (c *Container) runMax() uint16 {
 // bitmapToArray converts from bitmap format to array format.
 func (c *Container) bitmapToArray() {
 	statsHit("bitmapToArray")
-	if cap(c.array) < int(c.n) || c.array == nil {
-		c.array = make([]uint16, 0, c.n)
-	} else {
-		c.array = c.array[:0]
-	}
+	c.resetArrayWithMinimumCapacity(int(c.n))
 	c.containerType = containerArray
 
 	// return early if empty
 	if c.n == 0 {
-		c.resetBitmap()
+		c.resetBitmap(false)
 		c.mapped = false
 		return
 	}
@@ -1903,19 +1929,14 @@ func (c *Container) bitmapToArray() {
 			bitmap ^= t
 		}
 	}
-	c.resetBitmap()
+	c.resetBitmap(false)
 	c.mapped = false
 }
 
 // arrayToBitmap converts from array format to bitmap format.
 func (c *Container) arrayToBitmap() {
 	statsHit("arrayToBitmap")
-	// Bitmap should already be cleared, but clear again just to
-	// be safe.
-	c.resetBitmap()
-	if cap(c.bitmap) < bitmapN || c.bitmap == nil {
-		c.bitmap = make([]uint64, bitmapN)
-	}
+	c.resetBitmap(true)
 	c.containerType = containerBitmap
 
 	// return early if empty
@@ -1935,12 +1956,7 @@ func (c *Container) arrayToBitmap() {
 // runToBitmap converts from RLE format to bitmap format.
 func (c *Container) runToBitmap() {
 	statsHit("runToBitmap")
-	// Bitmap should already be cleared, but clear again just to
-	// be safe.
-	c.resetBitmap()
-	if cap(c.bitmap) < bitmapN || c.bitmap == nil {
-		c.bitmap = make([]uint64, bitmapN)
-	}
+	c.resetBitmap(true)
 	c.containerType = containerBitmap
 
 	// return early if empty
@@ -1967,22 +1983,14 @@ func (c *Container) bitmapToRun() {
 	c.containerType = containerRun
 	// return early if empty
 	if c.n == 0 {
-		if c.runs == nil {
-			c.runs = make([]interval16, 0)
-		} else {
-			c.runs = c.runs[:0]
-		}
-		c.resetBitmap()
+		c.resetRunsWithMinimumCapacity(0)
+		c.resetBitmap(false)
 		c.mapped = false
 		return
 	}
 
 	numRuns := c.bitmapCountRuns()
-	if cap(c.runs) < int(numRuns) || c.runs == nil {
-		c.runs = make([]interval16, 0, numRuns)
-	} else {
-		c.runs = c.runs[:0]
-	}
+	c.resetRunsWithMinimumCapacity(int(numRuns))
 
 	current := c.bitmap[0]
 	var i, start, last uint16
@@ -2022,7 +2030,7 @@ func (c *Container) bitmapToRun() {
 		current = current & (current + 1)
 	}
 
-	c.resetBitmap()
+	c.resetBitmap(false)
 	c.mapped = false
 }
 
@@ -2032,22 +2040,14 @@ func (c *Container) arrayToRun() {
 	c.containerType = containerRun
 	// return early if empty
 	if c.n == 0 {
-		if c.runs == nil {
-			c.runs = make([]interval16, 0)
-		} else {
-			c.runs = c.runs[:0]
-		}
+		c.resetRunsWithMinimumCapacity(0)
 		c.resetArrayWithMinimumCapacity(0)
 		c.mapped = false
 		return
 	}
 
 	numRuns := c.arrayCountRuns()
-	if cap(c.runs) < int(numRuns) || c.runs == nil {
-		c.runs = make([]interval16, 0, numRuns)
-	} else {
-		c.runs = c.runs[:0]
-	}
+	c.resetRunsWithMinimumCapacity(int(numRuns))
 	start := c.array[0]
 	for i, v := range c.array[1:] {
 		if v-c.array[i] > 1 {
@@ -2066,11 +2066,7 @@ func (c *Container) arrayToRun() {
 func (c *Container) runToArray() {
 	statsHit("runToArray")
 	c.containerType = containerArray
-	if cap(c.array) < int(c.n) || c.array == nil {
-		c.array = make([]uint16, 0, c.n)
-	} else {
-		c.array = c.array[:0]
-	}
+	c.resetArrayWithMinimumCapacity(int(c.n))
 
 	// return early if empty
 	if c.n == 0 {
