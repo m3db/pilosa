@@ -1345,8 +1345,9 @@ func NewContainer() *Container {
 func NewContainerWithPooling(poolingConfig ContainerPoolingConfiguration) *Container {
 	statsHit("NewContainerWithPooling")
 	return &Container{
-		pooled:        true,
-		containerType: containerArray,
+		pooled: true,
+		// Start as a bitmap since we had to allocate it anyways.
+		containerType: containerBitmap,
 
 		bitmap: make([]uint64, bitmapN),
 		array:  make([]uint16, 0, poolingConfig.MaxPooledArraySize),
