@@ -2088,6 +2088,9 @@ func (c *Container) runToArray() {
 func (c *Container) Clone() *Container {
 	statsHit("Container/Clone")
 	other := &Container{n: c.n, containerType: c.containerType}
+	if c.pooled {
+		other.pooled = true
+	}
 
 	switch c.containerType {
 	case containerArray:
