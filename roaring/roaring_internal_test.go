@@ -23,8 +23,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 // String produces a human viewable string of the contents.
@@ -2594,8 +2592,8 @@ func TestIntersectArrayBitmap(t *testing.T) {
 // to a state indistinguishable from a new one.
 func TestContainer_Reset(t *testing.T) {
 	var (
-		bm = NewContainerWithPooling(NewDefaultContainerPoolingConfiguration(10))
-		i  = uint16(0)
+		c = NewContainerWithPooling(NewDefaultContainerPoolingConfiguration(10))
+		i = uint16(0)
 	)
 
 	for {
@@ -2603,13 +2601,15 @@ func TestContainer_Reset(t *testing.T) {
 			break
 		}
 
-		bm.add(i)
+		c.add(i)
 		i++
 	}
 
-	bm.Reset()
+	c.Reset()
 	untouched := NewContainerWithPooling(NewDefaultContainerPoolingConfiguration(10))
-	require.Equal(t, untouched, bm)
+	if !reflect.DeepEqual(untouched, c) {
+		t.Fatalf("Reset bitmap: %+v is not identical to new bitmap: %+v", c, untouched)
+	}
 }
 
 func TestBitmapClone(t *testing.T) {

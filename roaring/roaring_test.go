@@ -28,7 +28,6 @@ import (
 	"github.com/pilosa/pilosa"
 	"github.com/pilosa/pilosa/roaring"
 	_ "github.com/pilosa/pilosa/test"
-	"github.com/stretchr/testify/require"
 )
 
 func TestContainerCount(t *testing.T) {
@@ -1421,8 +1420,12 @@ func TestBitmap_Reset(t *testing.T) {
 		bm.Add(10000 * i)
 		i++
 	}
+
+	untouched := roaring.NewBitmapWithDefaultPooling(10)
 	bm.Reset()
-	require.Equal(t, roaring.NewBitmapWithDefaultPooling(10), bm)
+	if !reflect.DeepEqual(untouched, bm) {
+		t.Fatalf("Reset bitmap: %+v is not identical to new bitmap: %+v", bm, untouched)
+	}
 }
 
 func BenchmarkGetBenchData(b *testing.B) {
