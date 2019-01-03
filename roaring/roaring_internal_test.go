@@ -2698,8 +2698,16 @@ func getFunctionName(i interface{}) string {
 }
 
 func TestContainerCombinations(t *testing.T) {
+	testContainerCombinations(t, false)
+}
 
-	cts := setupContainerTests()
+func TestContainerCombinationsWithPooling(t *testing.T) {
+	testContainerCombinations(t, true)
+}
+
+func testContainerCombinations(t *testing.T, poolingEnabled bool) {
+
+	cts := setupContainerTests(poolingEnabled)
 
 	containerTypes := []byte{containerArray, containerBitmap, containerRun}
 
@@ -3213,12 +3221,28 @@ func TestContainerCombinations(t *testing.T) {
 							t.Fatalf("test %s expected runs n=%d, but got n=%d", desc, cts[ct][exp].n, clone.n)
 						}
 						if !reflect.DeepEqual(clone.runs, cts[ct][exp].runs) {
-							t.Fatalf("test %s expected runs %X, but got %X", desc, cts[ct][exp].runs, clone.runs)
+							assertRunsEqual(t, desc, cts[ct][exp].runs, clone.runs)
 						}
 					}
 				}
 			}
 		}
+	}
+}
+
+func assertRunsEqual(t *testing.T, test string, a, b []interval16) {
+	equal := true
+	if len(a) != len(b) {
+		equal = false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			equal = false
+			break
+		}
+	}
+	if !equal {
+		t.Fatalf("test %s expected runs %X, but got %X", test, a, b)
 	}
 }
 
