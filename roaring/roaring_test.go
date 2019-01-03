@@ -28,6 +28,7 @@ import (
 	"github.com/pilosa/pilosa"
 	"github.com/pilosa/pilosa/roaring"
 	_ "github.com/pilosa/pilosa/test"
+	"github.com/stretchr/testify/require"
 )
 
 func TestContainerCount(t *testing.T) {
@@ -1383,6 +1384,13 @@ func TestBitmap_Intersect(t *testing.T) {
 	if bm0.Count() != result.Count() {
 		t.Fatalf("Counts do not match %d %d", bm0.Count(), result.Count())
 	}
+}
+
+func TestBitmap_Reset(t *testing.T) {
+	bm := roaring.NewBitmapWithDefaultPooling(1)
+	bm.Add(1)
+	bm.Reset()
+	require.Equal(t, roaring.NewBitmapWithDefaultPooling(1), bm)
 }
 
 func BenchmarkGetBenchData(b *testing.B) {

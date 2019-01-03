@@ -32,6 +32,10 @@ type ContainerPoolingConfiguration struct {
 	MaxPooledArraySize int
 	// Maximum size of an individual containers run slice.
 	MaxPooledRunSize int
+	// Maximum size of keys slice to maintain after calls to Reset().
+	MaxKeysSliceLength int
+	// Maximum size of containers slice to maintain after calls to Reset().
+	MaxContainersSliceLength int
 }
 
 // NewDefaultContainerPoolingConfiguration creates a ContainerPoolingConfiguration
@@ -43,11 +47,16 @@ func NewDefaultContainerPoolingConfiguration(maxCapacity int) ContainerPoolingCo
 		// inserting into a container.
 		MaxPooledArraySize: ArrayMaxSize,
 		MaxPooledRunSize:   runMaxSize,
+		// Compared to the size of the containers themselves, these slices are
+		// very small (8 bytes per entry), so we can afford to allow them to
+		// grow larger.
+		MaxKeysSliceLength:       maxCapacity * 10,
+		MaxContainersSliceLength: maxCapacity * 10,
 	}
 }
 
 type containersPool struct {
-	containers []*Container
+	containers []*Container // Nil if pooling disabled, otherwise present.
 	config     ContainerPoolingConfiguration
 }
 
@@ -104,7 +113,8 @@ func newSliceContainers() *sliceContainers {
 
 func newSliceContainersWithPooling(poolingConfig ContainerPoolingConfiguration) *sliceContainers {
 	sc := &sliceContainers{
-		keys: make([]uint64, 0, poolingConfig.MaxCapacity),
+		keys:       make([]uint64, 0, poolingConfig.MaxCapacity),
+		containers: make([]*Container, 0, poolingConfig.MaxCapacity),
 	}
 
 	sc.containersPool = containersPool{
@@ -244,8 +254,6 @@ func (sc *sliceContainers) Count() uint64 {
 }
 
 func (sc *sliceContainers) Reset() {
-	sc.keys = sc.keys[:0]
-
 	for i := range sc.containers {
 		// Try and return containers to the pool (no-op if disabled.)
 		sc.containersPool.put(sc.containers[i])
@@ -254,9 +262,28 @@ func (sc *sliceContainers) Reset() {
 		sc.containers[i] = nil
 	}
 
-	sc.containers = sc.containers[:0]
+	if sc.poolingEnabled() {
+		if cap(sc.keys) <= sc.containersPool.config.MaxKeysSliceLength {
+			sc.keys = sc.keys[:0]
+		} else {
+			sc.keys = make([]uint64, 0, sc.containersPool.config.MaxCapacity)
+		}
+
+		if cap(sc.containers) <= sc.containersPool.config.MaxContainersSliceLength {
+			sc.containers = sc.containers[:0]
+		} else {
+			sc.containers = make([]*Container, 0, sc.containersPool.config.MaxCapacity)
+		}
+	} else {
+		sc.keys = sc.keys[:0]
+		sc.containers = sc.containers[:0]
+	}
 	sc.lastContainer = nil
 	sc.lastKey = 0
+}
+
+func (sc *sliceContainers) poolingEnabled() bool {
+	return sc.containersPool.containers != nil
 }
 
 func (sc *sliceContainers) seek(key uint64) (int, bool) {
