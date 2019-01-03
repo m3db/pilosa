@@ -1337,22 +1337,36 @@ func (iv interval16) runlen() int32 {
 // newContainer returns a new instance of container.
 func NewContainer() *Container {
 	statsHit("NewContainer")
-	return &Container{containerType: containerArray}
+	c := newContainer()
+	return &c
+}
+
+func newContainer() Container {
+	return Container{containerType: containerArray}
 }
 
 // NewContainerWithPooling creates a new container with the provided pooling
 // configuration.
 func NewContainerWithPooling(poolingConfig ContainerPoolingConfiguration) *Container {
 	statsHit("NewContainerWithPooling")
-	return &Container{
-		pooled: true,
-		// Start as a bitmap since we had to allocate it anyways.
-		containerType: containerBitmap,
-
-		bitmap: make([]uint64, bitmapN),
-		array:  make([]uint16, 0, poolingConfig.MaxPooledArraySize),
-		runs:   make([]interval16, 0, poolingConfig.MaxPooledRunSize),
+	c := &Container{
+		pooled:        true,
+		containerType: containerArray,
 	}
+
+	if poolingConfig.AllocateArray {
+		c.array = make([]uint16, 0, ArrayMaxSize)
+	}
+	if poolingConfig.AllocateBitmap {
+		c.bitmap = make([]uint64, bitmapN)
+		// Start as a bitmap since we had to allocate it anyways.
+		c.containerType = containerBitmap
+	}
+	if poolingConfig.AllocateRuns {
+		c.runs = make([]interval16, 0, runMaxSize)
+	}
+
+	return c
 }
 
 // Reset the container so it can be reused while maintaining any allocated

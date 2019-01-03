@@ -26,32 +26,33 @@ type sliceContainers struct {
 // ContainerPoolingConfiguration represents the configuration for
 // container pooling.
 type ContainerPoolingConfiguration struct {
+	// Whether an array should be allocated for each pooled container.
+	AllocateArray bool
+	// Whether a bitmap should be allocated for each pooled container.
+	AllocateBitmap bool
+	// Whether a run should be allocated for each pooled container.
+	AllocateRuns bool
+
 	// Maximum number of containers to pool.
 	MaxCapacity int
-	// Maximum size of an individual containers array slice.
-	MaxPooledArraySize int
-	// Maximum size of an individual containers run slice.
-	MaxPooledRunSize int
-	// Maximum size of keys slice to maintain after calls to Reset().
-	MaxKeysSliceLength int
-	// Maximum size of containers slice to maintain after calls to Reset().
-	MaxContainersSliceLength int
+	// Maximum size of keys and containers slice to maintain after calls to Reset().
+	MaxKeysAndContainersSliceLength int
 }
 
 // NewDefaultContainerPoolingConfiguration creates a ContainerPoolingConfiguration
 // with default configuration.
 func NewDefaultContainerPoolingConfiguration(maxCapacity int) ContainerPoolingConfiguration {
 	return ContainerPoolingConfiguration{
+		AllocateArray:  true,
+		AllocateRuns:   true,
+		AllocateBitmap: true,
+
 		MaxCapacity: maxCapacity,
-		// Set to maximum possible values to completely prevent allocations when
-		// inserting into a container.
-		MaxPooledArraySize: ArrayMaxSize,
-		MaxPooledRunSize:   runMaxSize,
+
 		// Compared to the size of the containers themselves, these slices are
 		// very small (8 bytes per entry), so we can afford to allow them to
 		// grow larger.
-		MaxKeysSliceLength:       maxCapacity * 10,
-		MaxContainersSliceLength: maxCapacity * 10,
+		MaxKeysAndContainersSliceLength: maxCapacity * 10,
 	}
 }
 
@@ -67,7 +68,12 @@ func (cp *containersPool) put(c *Container) {
 	}
 
 	if c.mapped {
-		// Don't return mapped containers to the pool.
+		// If the container was mapped, assume the whole thing has been
+		// corrupted and reset it to an initial state (without reallocating
+		// according to the pooling config as its likely it will just be
+		// mapped again.)
+		*c = newContainer()
+		cp.containers = append(cp.containers, c)
 		return
 	}
 
@@ -76,15 +82,15 @@ func (cp *containersPool) put(c *Container) {
 		return
 	}
 
-	if c.array != nil && len(c.array) > cp.config.MaxPooledArraySize {
-		// Don't allow any containers with an oversized array slice to be
-		// returned to the pool.
+	if c.array != nil && !cp.config.AllocateArray {
+		// Don't allow any containers with an allocated array slice to be
+		// returned to the pool if the config doesn't allow it.
 		return
 	}
 
-	if c.runs != nil && len(c.runs) > cp.config.MaxPooledRunSize {
-		// Don't allow any containers with an oversized run slice to be
-		// returned to the pool.
+	if c.runs != nil && !cp.config.AllocateRuns {
+		// Don't allow any containers with an allocated run slice to be
+		// returned to the pool if the config doesn't allow it.
 		return
 	}
 
@@ -268,13 +274,13 @@ func (sc *sliceContainers) Reset() {
 	}
 
 	if sc.poolingEnabled() {
-		if cap(sc.keys) <= sc.containersPool.config.MaxKeysSliceLength {
+		if cap(sc.keys) <= sc.containersPool.config.MaxKeysAndContainersSliceLength {
 			sc.keys = sc.keys[:0]
 		} else {
 			sc.keys = make([]uint64, 0, sc.containersPool.config.MaxCapacity)
 		}
 
-		if cap(sc.containers) <= sc.containersPool.config.MaxContainersSliceLength {
+		if cap(sc.containers) <= sc.containersPool.config.MaxKeysAndContainersSliceLength {
 			sc.containers = sc.containers[:0]
 		} else {
 			sc.containers = make([]*Container, 0, sc.containersPool.config.MaxCapacity)
