@@ -1386,11 +1386,22 @@ func TestBitmap_Intersect(t *testing.T) {
 	}
 }
 
+// TestBitmap_Reset verifies that the Reset method always restores a Bitmap
+// to a state indistinguishable from a new one.
 func TestBitmap_Reset(t *testing.T) {
-	bm := roaring.NewBitmapWithDefaultPooling(1)
-	bm.Add(1)
+	bm := roaring.NewBitmapWithDefaultPooling(10)
+
+	i := uint64(0)
+	for {
+		if i >= 10000 {
+			break
+		}
+
+		bm.Add(10000 * i)
+		i++
+	}
 	bm.Reset()
-	require.Equal(t, roaring.NewBitmapWithDefaultPooling(1), bm)
+	require.Equal(t, roaring.NewBitmapWithDefaultPooling(10), bm)
 }
 
 func BenchmarkGetBenchData(b *testing.B) {
