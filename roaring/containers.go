@@ -162,7 +162,9 @@ func (sc *sliceContainers) Remove(key uint64) {
 	if i < 0 {
 		return
 	}
+
 	sc.keys = append(sc.keys[:i], sc.keys[i+1:]...)
+	sc.containersPool.put(sc.containers[i])
 	sc.containers = append(sc.containers[:i], sc.containers[i+1:]...)
 
 }
@@ -197,11 +199,25 @@ func (sc *sliceContainers) GetOrCreate(key uint64) *Container {
 }
 
 func (sc *sliceContainers) Clone() Containers {
-	other := newSliceContainers()
-	other.keys = make([]uint64, len(sc.keys))
+	var other *sliceContainers
+	if sc.containersPool.containers != nil {
+		other = newSliceContainersWithPooling(sc.containersPool.config)
+	} else {
+		other = newSliceContainers()
+	}
+
+	if cap(other.keys) > len(sc.keys) {
+		other.keys = other.keys[:len(sc.keys)]
+	} else {
+		other.keys = make([]uint64, len(sc.keys))
+	}
+
 	other.containers = make([]*Container, len(sc.containers))
 	copy(other.keys, sc.keys)
 	for i, c := range sc.containers {
+		// TODO(rartoul): It would be more efficient to use one of
+		// other's pooled containers instead of alllowing Clone to
+		// allocate a new one when pooling is enabled.
 		other.containers[i] = c.Clone()
 	}
 	return other
