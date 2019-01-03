@@ -2089,6 +2089,8 @@ func (c *Container) Clone() *Container {
 	statsHit("Container/Clone")
 	other := &Container{n: c.n, containerType: c.containerType}
 	if c.pooled {
+		// Clone the pooled flag, but allow the container types to
+		// be lazy alloced as needed.
 		other.pooled = true
 	}
 
