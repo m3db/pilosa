@@ -1571,6 +1571,14 @@ func BenchmarkUnionBulk(b *testing.B) {
 	}
 }
 
+var test []uint64
+
+func BenchmarkAlloc(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		test = make([]uint64, 0)
+	}
+}
+
 func BenchmarkUnionBulkWithPooling(b *testing.B) {
 	data := getBenchData(b)
 	bm := roaring.NewBitmapWithDefaultPooling(100)

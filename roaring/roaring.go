@@ -1363,16 +1363,20 @@ func (c *Container) Reset() {
 	c.n = 0
 
 	// Reset all the container types.
-	c.resetArray()
+	c.resetArrayWithMinimumCapacity(0)
 	c.resetBitmap()
-	c.resetRuns()
+	c.resetRunsWithMinimumCapacity(0)
 }
 
-func (c *Container) resetArray() {
-	if c.pooled && c.array != nil {
+func (c *Container) resetArrayWithMinimumCapacity(size int) {
+	if c.pooled && c.array != nil && cap(c.array) >= size {
 		c.array = c.array[:0]
 	} else {
-		c.array = nil
+		if size == 0 {
+			c.array = nil
+		} else {
+			c.array = make([]uint16, 0, size)
+		}
 	}
 }
 
@@ -1386,11 +1390,15 @@ func (c *Container) resetBitmap() {
 	}
 }
 
-func (c *Container) resetRuns() {
-	if c.pooled && c.runs != nil {
+func (c *Container) resetRunsWithMinimumCapacity(size int) {
+	if c.pooled && c.runs != nil && cap(c.runs) >= size {
 		c.runs = c.runs[:0]
 	} else {
-		c.runs = nil
+		if size == 0 {
+			c.runs = nil
+		} else {
+			c.runs = make([]interval16, 0, size)
+		}
 	}
 }
 
@@ -1912,7 +1920,7 @@ func (c *Container) arrayToBitmap() {
 
 	// return early if empty
 	if c.n == 0 {
-		c.resetArray()
+		c.resetArrayWithMinimumCapacity(0)
 		c.mapped = false
 		return
 	}
@@ -1920,7 +1928,7 @@ func (c *Container) arrayToBitmap() {
 	for _, v := range c.array {
 		c.bitmap[int(v)/64] |= (uint64(1) << uint(v%64))
 	}
-	c.resetArray()
+	c.resetArrayWithMinimumCapacity(0)
 	c.mapped = false
 }
 
@@ -1937,7 +1945,7 @@ func (c *Container) runToBitmap() {
 
 	// return early if empty
 	if c.n == 0 {
-		c.resetRuns()
+		c.resetRunsWithMinimumCapacity(0)
 		c.mapped = false
 		return
 	}
@@ -1949,7 +1957,7 @@ func (c *Container) runToBitmap() {
 			c.bitmap[v/64] |= (uint64(1) << uint(v%64))
 		}
 	}
-	c.resetRuns()
+	c.resetRunsWithMinimumCapacity(0)
 	c.mapped = false
 }
 
@@ -2029,7 +2037,7 @@ func (c *Container) arrayToRun() {
 		} else {
 			c.runs = c.runs[:0]
 		}
-		c.resetArray()
+		c.resetArrayWithMinimumCapacity(0)
 		c.mapped = false
 		return
 	}
@@ -2050,7 +2058,7 @@ func (c *Container) arrayToRun() {
 	}
 	// append final run
 	c.runs = append(c.runs, interval16{start, c.array[c.n-1]})
-	c.resetArray()
+	c.resetArrayWithMinimumCapacity(0)
 	c.mapped = false
 }
 
@@ -2066,7 +2074,7 @@ func (c *Container) runToArray() {
 
 	// return early if empty
 	if c.n == 0 {
-		c.resetRuns()
+		c.resetRunsWithMinimumCapacity(0)
 		c.mapped = false
 		return
 	}
@@ -2076,7 +2084,7 @@ func (c *Container) runToArray() {
 			c.array = append(c.array, uint16(v))
 		}
 	}
-	c.resetRuns()
+	c.resetRunsWithMinimumCapacity(0)
 	c.mapped = false
 }
 
