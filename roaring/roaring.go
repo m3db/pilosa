@@ -153,7 +153,7 @@ func NewBitmapWithDefaultPooling(maxPoolCapacity int, a ...uint64) *Bitmap {
 // In exchange for reduced memory pressure / allocations, bitmaps with pooling enabled wil use
 // significantly more memory. This is for two reasons:
 //
-// 		1. Even when there is no data in the bitmap, a configurable number of containers have already
+//    1. Even when there is no data in the bitmap, a configurable number of containers have already
 //       been pre-allocated and are waiting in reserve.
 //    2. Every container that is allocated when pooling is enabled is pre-allocated such that it can
 //       seamlessly switch between a run, array, or a bitmap with zero allocations. This means it can
