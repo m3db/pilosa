@@ -135,12 +135,30 @@ func NewBitmap(a ...uint64) *Bitmap {
 }
 
 // NewBitmapWithDefaultPooling returns a new bitmap with the default pooling configuration.
+// See the comment for NewBitmapWithPooling for more details about the pooling implementation.
 func NewBitmapWithDefaultPooling(maxPoolCapacity int, a ...uint64) *Bitmap {
 	return NewBitmapWithPooling(NewDefaultContainerPoolingConfiguration(maxPoolCapacity), a...)
 }
 
-// NewBitmapWithPooling returns a new Bitmap with the provided pooling configuration
+// NewBitmapWithPooling returns a new Bitmap with the provided container pooling configuration
 // and initial set of values.
+//
+// Container Pooling is useful for reusing short lived Bitmaps (common in the situation where
+// temporary bitmaps are being created for the sake of computation instead of storage). In that
+// case, allocating new containers over and over again is unecessarily expensive. Instead, when
+// you need an empty bitmap, you can call the Reset() method on an existing one. That will clear
+// all the data it contains and return its containers (up to the configured maximum) to its pool
+// so that when you start adding new data, the already allocated containers can be reused.
+//
+// In exchange for reduced memory pressure / allocations, bitmaps with pooling enabled wil use
+// significantly more memory. This is for two reasons:
+//
+// 		1. Even when there is no data in the bitmap, a configurable number of containers have already
+//       been pre-allocated and are waiting in reserve.
+//    2. Every container that is allocated when pooling is enabled is pre-allocated such that it can
+//       seamlessly switch between a run, array, or a bitmap with zero allocations. This means it can
+//       be used for performing calculations very quickly and without causing G.C pressure, but it will
+//       use much more space.
 func NewBitmapWithPooling(pooling ContainerPoolingConfiguration, a ...uint64) *Bitmap {
 	b := &Bitmap{
 		Containers: newSliceContainersWithPooling(pooling),
