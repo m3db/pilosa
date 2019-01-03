@@ -66,6 +66,11 @@ func (cp *containersPool) put(c *Container) {
 		return
 	}
 
+	if c.mapped {
+		// Don't return mapped containers to the pool.
+		return
+	}
+
 	if len(cp.containers) >= cp.config.MaxCapacity {
 		// Don't allow pool to exceed maximum capacity.
 		return

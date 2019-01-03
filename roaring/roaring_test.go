@@ -1088,60 +1088,81 @@ func testBitmapMarshalQuick(t *testing.T, n int, min, max uint64, sorted bool) {
 		t.Skip("short")
 	}
 
-	quick.Check(func(a0, a1 []uint64) bool {
-		// Create bitmap with initial values set.
-		bm := roaring.NewFileBitmap(a0...)
-
-		set := make(map[uint64]struct{})
-		for _, v := range a0 {
-			set[v] = struct{}{}
+	newQuickCheckFunc := func(poolingEnabled bool) func(a0, a1 []uint64) bool {
+		// Allocate bitmaps outside the functions so we can reuse them.
+		var (
+			bm  *roaring.Bitmap
+			bm2 *roaring.Bitmap
+		)
+		if poolingEnabled {
+			bm = roaring.NewBitmapWithDefaultPooling(10)
+			bm2 = roaring.NewBitmapWithDefaultPooling(10)
+		} else {
+			bm = roaring.NewFileBitmap()
+			bm2 = roaring.NewFileBitmap()
 		}
 
-		// Write snapshot to buffer.
-		var buf bytes.Buffer
-		if n, err := bm.WriteTo(&buf); err != nil {
-			t.Fatal(err)
-		} else if n != int64(buf.Len()) {
-			t.Fatalf("size mismatch: %d != %d", n, buf.Len())
-		}
+		return func(a0, a1 []uint64) bool {
+			bm.Reset()
+			bm.Add(a0...)
 
-		// Set buffer as the writer for the ops log.
-		bm.OpWriter = &buf
+			set := make(map[uint64]struct{})
+			for _, v := range a0 {
+				set[v] = struct{}{}
+			}
 
-		// Add more values to bitmap.
-		for _, v := range a1 {
-			set[v] = struct{}{}
-			if _, err := bm.Add(v); err != nil {
+			// Write snapshot to buffer.
+			var buf bytes.Buffer
+			if n, err := bm.WriteTo(&buf); err != nil {
 				t.Fatal(err)
+			} else if n != int64(buf.Len()) {
+				t.Fatalf("size mismatch: %d != %d", n, buf.Len())
 			}
 
-			// Extract buffer as a byte slice so it can be mapped.
-			data := buf.Bytes()
+			// Set buffer as the writer for the ops log.
+			bm.OpWriter = &buf
 
-			// Create new bitmap from ops log data.
-			bm2 := roaring.NewFileBitmap()
-			if err := bm2.UnmarshalBinary(data); err != nil {
-				t.Fatal(err)
+			// Add more values to bitmap.
+			for _, v := range a1 {
+				set[v] = struct{}{}
+				if _, err := bm.Add(v); err != nil {
+					t.Fatal(err)
+				}
+
+				// Extract buffer as a byte slice so it can be mapped.
+				data := buf.Bytes()
+
+				// Create new bitmap from ops log data.
+				bm2.Reset()
+				if err := bm2.UnmarshalBinary(data); err != nil {
+					t.Fatal(err)
+				}
+
+				// Verify the original bitmap has the correct set of values.
+				if exp, got := uint64SetSlice(set), bm.Slice(); !reflect.DeepEqual(exp, got) {
+					t.Fatalf("mismatch: %s\n\nexp=%+v\n\ngot=%+v\n\n", diff(exp, got), exp, got)
+				}
+
+				// Verify the bitmap loaded with the ops log has the correct set of values.
+				if exp, got := uint64SetSlice(set), bm2.Slice(); !reflect.DeepEqual(exp, got) {
+					t.Fatalf("mismatch: %s\n\nexp=%+v\n\ngot=%+v\n\n", diff(exp, got), exp, got)
+				}
 			}
 
-			// Verify the original bitmap has the correct set of values.
-			if exp, got := uint64SetSlice(set), bm.Slice(); !reflect.DeepEqual(exp, got) {
-				t.Fatalf("mismatch: %s\n\nexp=%+v\n\ngot=%+v\n\n", diff(exp, got), exp, got)
-			}
-
-			// Verify the bitmap loaded with the ops log has the correct set of values.
-			if exp, got := uint64SetSlice(set), bm2.Slice(); !reflect.DeepEqual(exp, got) {
-				t.Fatalf("mismatch: %s\n\nexp=%+v\n\ngot=%+v\n\n", diff(exp, got), exp, got)
-			}
+			return true
 		}
+	}
 
-		return true
-	}, &quick.Config{
+	quickCheckConfig := &quick.Config{
 		Values: func(values []reflect.Value, rand *rand.Rand) {
 			values[0] = reflect.ValueOf(GenerateUint64Slice(n, min, max, sorted, rand))
 			values[1] = reflect.ValueOf(GenerateUint64Slice(100, min, max, sorted, rand))
 		},
-	})
+	}
+
+	// Run each quick check with pooling enabled and disabled.
+	quick.Check(newQuickCheckFunc(false), quickCheckConfig)
+	quick.Check(newQuickCheckFunc(true), quickCheckConfig)
 }
 
 // Ensure iterator can iterate over all the values on the bitmap.
