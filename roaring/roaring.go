@@ -150,7 +150,7 @@ func NewBitmapWithDefaultPooling(maxPoolCapacity int, a ...uint64) *Bitmap {
 // all the data it contains and return its containers (up to the configured maximum) to its pool
 // so that when you start adding new data, the already allocated containers can be reused.
 //
-// In exchange for reduced memory pressure / allocations, bitmaps with pooling enabled wil use
+// In exchange for reduced memory pressure / allocations, bitmaps with pooling enabled will use
 // significantly more memory. This is for two reasons:
 //
 //    1. Even when there is no data in the bitmap, a configurable number of containers have already
