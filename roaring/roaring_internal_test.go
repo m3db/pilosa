@@ -23,6 +23,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // String produces a human viewable string of the contents.
@@ -2586,6 +2588,28 @@ func TestIntersectArrayBitmap(t *testing.T) {
 			t.Fatalf("test #%v intersectArrayBitmap received: %v exp: %v", i, ret, test.exp)
 		}
 	}
+}
+
+// TestContainer_Reset verifies that the Reset method always restores a Container
+// to a state indistinguishable from a new one.
+func TestContainer_Reset(t *testing.T) {
+	var (
+		bm = NewContainerWithPooling(NewDefaultContainerPoolingConfiguration(10))
+		i  = uint16(0)
+	)
+
+	for {
+		if i >= 2^16 {
+			break
+		}
+
+		bm.add(i)
+		i++
+	}
+
+	bm.Reset()
+	untouched := NewContainerWithPooling(NewDefaultContainerPoolingConfiguration(10))
+	require.Equal(t, untouched, bm)
 }
 
 func TestBitmapClone(t *testing.T) {

@@ -1359,7 +1359,11 @@ func NewContainerWithPooling(poolingConfig ContainerPoolingConfiguration) *Conta
 // datastructures.
 func (c *Container) Reset() {
 	c.mapped = false
-	c.containerType = containerArray
+	if c.pooled {
+		c.containerType = containerBitmap
+	} else {
+		c.containerType = containerArray
+	}
 	c.n = 0
 
 	// Reset all the container types.
