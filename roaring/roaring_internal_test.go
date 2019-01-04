@@ -1029,7 +1029,8 @@ func TestBitmapToArray(t *testing.T) {
 		a.n = n
 
 		a.bitmapToArray()
-		if !reflect.DeepEqual(a.array, test.exp) {
+
+		if !reflect.DeepEqual(a.array, test.exp) && (cap(a.array) != 0 || cap(test.exp) != 0) {
 			t.Fatalf("test #%v expected %v, but got %v", i, test.exp, a.array)
 		}
 	}
@@ -1157,7 +1158,7 @@ func TestBitmapToRun(t *testing.T) {
 		a.n = int32(n)
 		x := a.bitmap
 		a.bitmapToRun()
-		if !reflect.DeepEqual(a.runs, test.exp) {
+		if !reflect.DeepEqual(a.runs, test.exp) && (cap(a.runs) != 0 || cap(test.exp) != 0) {
 			t.Fatalf("test #%v expected %v, but got %v", i, test.exp, a.runs)
 		}
 		a.runToBitmap()
@@ -1195,7 +1196,7 @@ func TestArrayToRun(t *testing.T) {
 		a.array = test.array
 		a.n = int32(len(test.array))
 		a.arrayToRun()
-		if !reflect.DeepEqual(a.runs, test.exp) {
+		if !reflect.DeepEqual(a.runs, test.exp) && (cap(a.runs) != 0 || cap(test.exp) != 0) {
 			t.Fatalf("test #%v expected %v, but got %v", i, test.exp, a.runs)
 		}
 	}
@@ -1229,7 +1230,7 @@ func TestRunToArray(t *testing.T) {
 		a.runs = test.runs
 		a.n = int32(len(test.exp))
 		a.runToArray()
-		if !reflect.DeepEqual(a.array, test.exp) {
+		if !reflect.DeepEqual(a.array, test.exp) && (cap(a.array) != 0 || cap(test.exp) != 0) {
 			t.Fatalf("test #%v expected %v, but got %v", i, test.exp, a.array)
 		}
 	}
@@ -1692,8 +1693,8 @@ func TestDifferenceBitmapArray(t *testing.T) {
 		b.n = b.count()
 		a.array = test.array
 		ret := differenceBitmapArray(b, a)
-		if !reflect.DeepEqual(ret.array, test.exp) {
-			t.Fatalf("test #%v expected %X, but got %X", i, test.exp, ret.array)
+		if !reflect.DeepEqual(ret.array, test.exp) && (cap(ret.array) != 0 || cap(test.exp) != 0) {
+			t.Fatalf("test #%v expected %v, but got %v", i, test.exp, ret.array)
 		}
 	}
 }
@@ -1882,11 +1883,12 @@ func TestXorArrayRun(t *testing.T) {
 		test.a.n = test.a.count()
 		test.b.n = test.b.count()
 		ret := xor(test.a, test.b)
-		if !reflect.DeepEqual(ret, test.exp) {
+		if !reflect.DeepEqual(ret, test.exp) && (cap(ret.array) != 0 || cap(test.exp.array) != 0) {
 			t.Fatalf("test #%v expected %v, but got %v", i, test.exp, ret)
 		}
+
 		ret = xor(test.b, test.a)
-		if !reflect.DeepEqual(ret, test.exp) {
+		if !reflect.DeepEqual(ret, test.exp) && (cap(ret.array) != 0 || cap(test.exp.array) != 0) {
 			t.Fatalf("test #%v.1 expected %v, but got %v", i, test.exp, ret)
 		}
 	}
