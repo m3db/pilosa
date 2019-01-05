@@ -309,7 +309,7 @@ func (sc *sliceContainers) seek(key uint64) (int, bool) {
 
 func (sc *sliceContainers) Iterator(key uint64) (citer ContainerIterator, found bool) {
 	i, found := sc.seek(key)
-	return &sliceIterator{e: sc, i: i}, found
+	return sliceIterator{e: sc, i: i}, found
 }
 
 func (sc *sliceContainers) Repair() {
@@ -319,23 +319,24 @@ func (sc *sliceContainers) Repair() {
 }
 
 type sliceIterator struct {
-	e     *sliceContainers
-	i     int
-	key   uint64
-	value *Container
+	e *sliceContainers
+	i int
 }
 
-func (si *sliceIterator) Next() bool {
+func (si sliceIterator) Next() bool {
 	if si.e == nil || si.i > len(si.e.keys)-1 {
 		return false
 	}
-	si.key = si.e.keys[si.i]
-	si.value = si.e.containers[si.i]
-	si.i++
 
+	si.i++
 	return true
 }
 
-func (si *sliceIterator) Value() (uint64, *Container) {
-	return si.key, si.value
+func (si sliceIterator) Value() (uint64, *Container) {
+	if si.i <= len(si.e.keys)-1 {
+		return si.e.keys[si.i], si.e.containers[si.i]
+	} else {
+		last := len(si.e.keys) - 1
+		return si.e.keys[last], si.e.containers[last]
+	}
 }
