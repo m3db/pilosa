@@ -344,8 +344,13 @@ func (si *sliceIterator) Next() bool {
 }
 
 func (si *sliceIterator) Value() (uint64, *Container) {
-	if si.i <= len(si.e.keys)-1 {
-		return si.e.keys[si.i], si.e.containers[si.i]
+	if si.i <= 0 {
+		return 0, nil
+	}
+
+	i := si.i - 1
+	if i <= len(si.e.keys)-1 {
+		return si.e.keys[i], si.e.containers[i]
 	}
 
 	last := len(si.e.keys) - 1
