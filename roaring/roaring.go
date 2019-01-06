@@ -96,6 +96,11 @@ type Containers interface {
 	// container is found at key.
 	Iterator(key uint64) (citer ContainerIterator, found bool)
 
+	// CachedIterator is the same as Iterator, but instead of allocating a new container it
+	// returns a cached one. This means that the iterator can only be used by one code path
+	// at a time.
+	CachedIterator(key uint64) (citer ContainerIterator, found bool)
+
 	Count() uint64
 
 	// Reset clears the containers collection to allow for recycling during snapshot

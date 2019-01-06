@@ -21,6 +21,7 @@ type sliceContainers struct {
 	lastContainer *Container
 
 	containersPool containersPool
+	cachedIter     *sliceIterator
 }
 
 // ContainerPoolingConfiguration represents the configuration for
@@ -312,6 +313,16 @@ func (sc *sliceContainers) Iterator(key uint64) (citer ContainerIterator, found 
 	return &sliceIterator{e: sc, i: i}, found
 }
 
+func (sc *sliceContainers) CachedIterator(key uint64) (citer ContainerIterator, found bool) {
+	i, found := sc.seek(key)
+	if sc.cachedIter == nil {
+		sc.cachedIter = &sliceIterator{}
+	}
+	sc.cachedIter.e = sc
+	sc.cachedIter.i = i
+	return sc.cachedIter, found
+}
+
 func (sc *sliceContainers) Repair() {
 	for _, c := range sc.containers {
 		c.Repair()
@@ -335,8 +346,8 @@ func (si *sliceIterator) Next() bool {
 func (si *sliceIterator) Value() (uint64, *Container) {
 	if si.i <= len(si.e.keys)-1 {
 		return si.e.keys[si.i], si.e.containers[si.i]
-	} else {
-		last := len(si.e.keys) - 1
-		return si.e.keys[last], si.e.containers[last]
 	}
+
+	last := len(si.e.keys) - 1
+	return si.e.keys[last], si.e.containers[last]
 }
